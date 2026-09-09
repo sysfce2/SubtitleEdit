@@ -1764,9 +1764,16 @@ public class AudioVisualizer : Control
             {
                 case InteractionMode.ResizingLeft:
                 case InteractionMode.ResizeLeftAnd:
+                    OnVideoPositionChanged.Invoke(this, new PositionEventArgs { PositionInSeconds = _activeParagraph.StartTime.TotalSeconds, IsCtrlShift = isCtrlShift });
+                    break;
                 case InteractionMode.Moving:
                 case InteractionMode.MovingSelection:
-                    OnVideoPositionChanged.Invoke(this, new PositionEventArgs { PositionInSeconds = _activeParagraph.StartTime.TotalSeconds, IsCtrlShift = isCtrlShift });
+                    // Whole-paragraph moves only scrub in the Ctrl+Shift preview mode, never
+                    // from the SetVideoPositionOnMoveStartEnd setting alone.
+                    if (isCtrlShift)
+                    {
+                        OnVideoPositionChanged.Invoke(this, new PositionEventArgs { PositionInSeconds = _activeParagraph.StartTime.TotalSeconds, IsCtrlShift = true });
+                    }
                     break;
                 case InteractionMode.ResizingRight:
                 case InteractionMode.ResizeRightAnd:
