@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -544,6 +544,7 @@ public class AudioVisualizer : Control
     public class PositionEventArgs : EventArgs
     {
         public double PositionInSeconds { get; set; }
+        public bool IsCtrlShift { get; set; }
     }
 
     public class ContextEventArgs : EventArgs
@@ -586,6 +587,7 @@ public class AudioVisualizer : Control
     /// move/resize drag. Lets hosts select the paragraph the user grabbed before the drag
     /// mutates it (#14000) - a click is delivered via <see cref="OnPrimarySingleClicked"/> instead.</summary>
     public event ParagraphEventHandler? OnDragStarted;
+    public event EventHandler? OnDragEnded;
 
     /// <summary>Raised when the user clicks the empty waveform to generate it on demand
     /// (shown only when auto-generate is off and there are no cached peaks).</summary>
@@ -958,10 +960,12 @@ public class AudioVisualizer : Control
 
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // Cleared up front: every path out of this method ends the drag, and several of them
-        // return early. The 500 ms tail in IsEditingWithPointer takes over from here, so the
-        // settled times still get one - and only one - undo snapshot.
+        var wasDragging = _pointerDragActive;
         _pointerDragActive = false;
+        if (wasDragging)
+        {
+            OnDragEnded?.Invoke(this, EventArgs.Empty);
+        }
 
         _isCtrlDown = e.KeyModifiers.HasFlag(KeyModifiers.Control);
         _isShiftDown = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
@@ -1269,7 +1273,7 @@ public class AudioVisualizer : Control
         else
         {
             // Not near an edge, so it's a move operation
-            if (_isCtrlDown || _isAltDown)
+            if ((_isCtrlDown && !_isShiftDown) || _isAltDown)
             {
                 _interactionMode = InteractionMode.None;
                 return;
@@ -1307,7 +1311,12 @@ public class AudioVisualizer : Control
     /// </summary>
     private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
+        var wasDragging = _pointerDragActive;
         _pointerDragActive = false;
+        if (wasDragging)
+        {
+            OnDragEnded?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private void OnPointerExited(object? sender, PointerEventArgs e)
@@ -1747,18 +1756,21 @@ public class AudioVisualizer : Control
         _lastPointerEditMs = Environment.TickCount64;
 
         // SE 4 parity: scrub the video to the edge being dragged so the user sees the
-        // exact frame at the new start/end while resizing (whole-paragraph moves are excluded).
-        if (Se.Settings.Waveform.SetVideoPositionOnMoveStartEnd && OnVideoPositionChanged != null && _activeParagraph != null)
+        // exact frame at the new start/end while resizing (whole-paragraph moves are excluded unless Ctrl+Shift is held).
+        var isCtrlShift = _isCtrlDown && _isShiftDown;
+        if ((isCtrlShift || Se.Settings.Waveform.SetVideoPositionOnMoveStartEnd) && OnVideoPositionChanged != null && _activeParagraph != null)
         {
             switch (_interactionMode)
             {
                 case InteractionMode.ResizingLeft:
                 case InteractionMode.ResizeLeftAnd:
-                    OnVideoPositionChanged.Invoke(this, new PositionEventArgs { PositionInSeconds = _activeParagraph.StartTime.TotalSeconds });
+                case InteractionMode.Moving:
+                case InteractionMode.MovingSelection:
+                    OnVideoPositionChanged.Invoke(this, new PositionEventArgs { PositionInSeconds = _activeParagraph.StartTime.TotalSeconds, IsCtrlShift = isCtrlShift });
                     break;
                 case InteractionMode.ResizingRight:
                 case InteractionMode.ResizeRightAnd:
-                    OnVideoPositionChanged.Invoke(this, new PositionEventArgs { PositionInSeconds = _activeParagraph.EndTime.TotalSeconds });
+                    OnVideoPositionChanged.Invoke(this, new PositionEventArgs { PositionInSeconds = _activeParagraph.EndTime.TotalSeconds, IsCtrlShift = isCtrlShift });
                     break;
             }
         }
